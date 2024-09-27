@@ -1,8 +1,8 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, request
 import requests
-from datetime import datetime, timezone as dt_timezone  # Rename timezone from datetime
+from datetime import datetime
 import logging
-from pytz import timezone as pytz_timezone  # Rename timezone from pytz
+from pytz import timezone as pytz_timezone
 from dateutil import parser
 
 app = Flask(__name__)
@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 # BVG API Base URL
 departures_url = "https://v6.vbb.transport.rest/stops/{}/departures"
+station_search_url = "https://v6.vbb.transport.rest/stations?query={}"
 
 # Define your local timezone (CEST)
 local_tz = pytz_timezone('Europe/Berlin')
@@ -37,6 +38,19 @@ def get_next_departures(station_id):
         logging.exception("Exception occurred while fetching departures.")
         raise
 
+# Function to search stations based on query
+@app.route('/stations', methods=['GET'])
+def get_stations():
+    query = request.args.get('query', '')
+    response = requests.get(station_search_url.format(query))
+
+    if response.status_code == 200:
+        return response.json()  # Return JSON response to the client
+    else:
+        app.logger.error(f"Error fetching stations: {response.status_code} - {response.text}")
+        return jsonify({}), response.status_code  # Return empty JSON on error
+
+
 # Define a dictionary to map station IDs to station names
 station_names = {
     "900007105": "Wolliner Str. (Berlin)",  # Corrected name
@@ -53,7 +67,7 @@ def format_departures(departures, is_ubahn_only=False, station_id=None):
             # Check if the station is Bernauer Str. or Eberswalder Str. and filter accordingly
             if (station_id in ["900007110", "900110006"]) and transport_type != "subway":
                 continue
-            
+
             if is_ubahn_only and transport_type != "subway":
                 continue
 
@@ -78,7 +92,6 @@ def format_departures(departures, is_ubahn_only=False, station_id=None):
                 # Calculate remaining time in minutes
                 remaining_time_seconds = (departure_dt - current_time).total_seconds()
                 remaining_time = int(max(remaining_time_seconds // 60, 0))
-                # remaining_time = max(remaining_time_seconds // 60, 0)
 
                 # Only include departures after the next 2 minutes
                 if remaining_time < 2:
@@ -98,7 +111,7 @@ def format_departures(departures, is_ubahn_only=False, station_id=None):
                 data.append({
                     "line": line_name,
                     "direction": direction,
-                    "departure_stop": station_names.get(station_id, "Unknown Stop"),  # Use updated name
+                    "departure_stop": station_names.get(station_id, "Unknown Stop"),
                     "departure_time": departure_dt.strftime('%Y-%m-%d %H:%M'),
                     "in_next": remaining_time,
                     "delay": delay_str,
@@ -118,11 +131,11 @@ def format_departures(departures, is_ubahn_only=False, station_id=None):
 def index():
     station_ids = ["900007105", "900007110", "900110006"]  # Add all relevant station IDs
     all_departures = []
-    
+
     try:
         for station_id in station_ids:
             departures = get_next_departures(station_id)
-            formatted_departures = format_departures(departures, station_id=station_id)  # Pass station_id
+            formatted_departures = format_departures(departures, station_id=station_id)
             all_departures.extend(formatted_departures)
     except Exception as e:
         all_departures = []  # Ensure departures are empty on error
@@ -130,44 +143,16 @@ def index():
     # Sort the departures by planned departure time
     all_departures.sort(key=lambda x: datetime.strptime(x['planned_time'], '%Y-%m-%d %H:%M'))
 
-    # Group by transport type and limit to 8 entries
+    # Group by transport type and limit to 6 entries
     grouped_departures = {}
     for departure in all_departures:
         transport_type = departure['type']
         if transport_type not in grouped_departures:
             grouped_departures[transport_type] = []
-        if len(grouped_departures[transport_type]) < 6:  # Limit to 8 departures
+        if len(grouped_departures[transport_type]) < 6:  # Limit to 6 departures
             grouped_departures[transport_type].append(departure)
 
     return render_template('index.html', grouped_departures=grouped_departures)
 
-""" 
-@app.route('/ubahn_bernauer')
-def ubahn_bernauer():
-    station_id = "900007110"  # U-Bernauer Str.
-    try:
-        departures = get_next_departures(station_id)
-        formatted_departures = format_departures(departures, is_ubahn_only=True)
-        logging.debug(f"Formatted departures for U-Bahn station ID {station_id}: {formatted_departures}")
-    except Exception as e:
-        formatted_departures = []  # Ensure departures are empty on error
-
-    return render_template('index.html', departures=formatted_departures)
-
-@app.route('/ubahn_eberswalder')
-def ubahn_eberswalder():
-    station_id = "900110006"  # U-Eberswalder Str.
-    try:
-        departures = get_next_departures(station_id)
-        formatted_departures = format_departures(departures, is_ubahn_only=True)
-        logging.debug(f"Formatted departures for U-Bahn station ID {station_id}: {formatted_departures}")
-    except Exception as e:
-        formatted_departures = []  # Ensure departures are empty on error
-
-    return render_template('index.html', departures=formatted_departures) 
-"""
-
 if __name__ == "__main__":
-    #app.run(debug=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
-

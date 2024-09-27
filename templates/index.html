@@ -39,6 +39,13 @@
     <h1>Next Departures from All Stations</h1>
 </div>
 
+<!-- Move the search input here -->
+<div class="container mt-3">
+    <h2>Select a Departure Station</h2>
+    <input type="text" id="station-search" class="form-control" placeholder="Type to search stations...">
+    <ul id="station-list" class="list-group mt-2" style="display: none;"></ul>
+</div>
+
 <div class="container table-container">
     {% for transport_type, departures in grouped_departures.items() %}
         <h2>{{ transport_type }}</h2>
@@ -71,6 +78,42 @@
     {% endfor %}
 </div>
 
+<script>
+document.getElementById('station-search').addEventListener('input', function() {
+    const query = this.value;
+    if (query.length < 3) {
+        document.getElementById('station-list').style.display = 'none'; // Hide if query is less than 3 chars
+        return;
+    }
+
+    fetch(`/stations?query=${query}`)
+        .then(response => response.json())
+        .then(data => {
+            const stationList = document.getElementById('station-list');
+            stationList.innerHTML = ''; // Clear previous results
+
+            if (data.length > 0) {
+                data.forEach(station => {
+                    const listItem = document.createElement('li');
+                    listItem.className = 'list-group-item';
+                    listItem.textContent = station.name;
+                    listItem.dataset.id = station.id; // Store the station id
+                    listItem.onclick = function() {
+                        document.getElementById('station-search').value = station.name; // Update input with selected station
+                        stationList.style.display = 'none'; // Hide the list
+                        // You may want to trigger fetching the departures for this station here
+                    };
+                    stationList.appendChild(listItem);
+                });
+                stationList.style.display = 'block'; // Show the list if there are results
+            } else {
+                stationList.style.display = 'none'; // Hide if no results
+            }
+        });
+});
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 
